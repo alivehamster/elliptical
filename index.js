@@ -1,38 +1,11 @@
+import "dotenv/config"
 import { v4 as uuid } from "uuid"
-import { build, createServer as createViteServer } from "vite"
-
 import { createInterface } from "node:readline"
-import path from "node:path"
-import url from "node:url"
-
-import { io, app, server } from "./server/host.js"
+import { io, server } from "./server/host.js"
 import { executeUserInput } from "./server/adminhandler.js"
 import { get, getroom } from "./server/functions.js"
-import { rooms, adminpass, reports, initializeDB } from "./server/mongo.js"
 import { context } from "./server/context.js"
-
-// Initalize server stuff
-const __dirname = url.fileURLToPath(new URL("./", import.meta.url))
-
-
-// frontend
-if (process.argv.includes("--dev")) {
-  // if dev mode start vite server
-  const vite = await createViteServer({
-    server: { middlewareMode: "html" },
-  })
-  app.use(vite.middlewares)
-  console.log("✅ Vite development server served with middleware")
-} else {
-  // prod, serve from dist
-  console.log("🔁 Building for production...")
-  await build()
-  app.use(express.static("dist"))
-  app.use((req, res) =>
-    res.sendFile(path.join(__dirname, "dist", "index.html"))
-  )
-  console.log("✅ Production build served from dist")
-}
+import { pool } from "./server/db.js"
 
 // Handle socket.io events
 io.on("connection", async (socket) => {
@@ -70,18 +43,9 @@ io.on("connection", async (socket) => {
       } else {
         const id = uuid()
 
-        await rooms.updateOne(
-          {
-            roomid,
-          },
-          {
-            $push: {
-              messages: {
-                message,
-                msgid: id,
-              },
-            },
-          }
+        const [result] = await pool.execute(
+          "INSERT INTO messages (room_id, user_id, content, message_uuid) VALUES (?, ?, ?, ?)",
+          [roomid, socket.id, message, id]
         )
 
         io.emit("message", {
@@ -98,7 +62,10 @@ io.on("connection", async (socket) => {
     const messageIncludesBlockedTerm = context.BLOCKED.some((term) =>
       room.title.replaceAll(" ", "").toLowerCase().includes(term)
     )
-    const roomCount = await rooms.countDocuments({ private: false })
+    const [rows] = await pool.execute(
+      "SELECT COUNT(*) as count FROM rooms WHERE is_private = 0"
+    )
+    const roomCount = rows[0].count
 
     if (messageIncludesBlockedTerm)
       socket.emit("event", {
@@ -124,17 +91,15 @@ io.on("connection", async (socket) => {
       else {
         const id = uuid()
 
-        await rooms.insertOne({
-          title: room.title,
-          roomid: id,
-          private: room.private && !!room.code,
-          ...(room.private && room.code
-            ? {
-                code: room.code,
-              }
-            : {}),
-          messages: [],
-        })
+        const [result] = await pool.execute(
+          "INSERT INTO rooms (room_uuid, name, is_private, access_code) VALUES (?, ?, ?, ?)",
+          [
+            id,
+            room.title,
+            room.private && !!room.code ? 1 : 0,
+            room.code || null,
+          ]
+        )
 
         if (room.private && room.code)
           socket.emit("room", {
@@ -154,14 +119,20 @@ io.on("connection", async (socket) => {
 
   socket.on("join private", async (code) => {
     try {
-      const room = await rooms.findOne({ code })
+      const [rows] = await pool.execute(
+        "SELECT * FROM rooms WHERE access_code = ?",
+        [code]
+      )
 
-      room.id = room.roomid
-
-      delete room._id
-      delete room.roomid
-
-      socket.emit("room", room)
+      if (rows.length > 0) {
+        const room = rows[0]
+        socket.emit("room", {
+          title: room.name,
+          id: room.room_uuid,
+          private: true,
+          code: room.access_code,
+        })
+      }
     } catch {} // Room does not exist
   })
 
@@ -185,20 +156,16 @@ io.on("connection", async (socket) => {
   socket.on("report msg", async (msg) => {
     try {
       // Check if report already exists
-      const existingReport = await reports.findOne({
-        msgid: msg.msgid,
-        roomid: msg.roomid,
-      })
+      const [existing] = await pool.execute(
+        "SELECT id FROM reports WHERE message_uuid = ? AND room_uuid = ?",
+        [msg.msgid, msg.roomid]
+      )
 
-      if (!existingReport) {
-        // Only insert if no existing report found
-        await reports.insertOne({
-          msgid: msg.msgid,
-          roomid: msg.roomid,
-          message: msg.message,
-          timestamp: new Date(),
-        })
-
+      if (existing.length === 0) {
+        await pool.execute(
+          "INSERT INTO reports (message_uuid, room_uuid, message_content, reported_at) VALUES (?, ?, ?, NOW())",
+          [msg.msgid, msg.roomid, msg.message]
+        )
         console.log("📝 New report added:", msg)
       }
 
@@ -215,18 +182,11 @@ io.on("connection", async (socket) => {
     else console.log("❌ Invalid admin password attempt: " + msg.adminpass)
   })
 
-  socket.on("passchange", (msg) => {
+  socket.on("passchange", async (msg) => {
     if (msg.adminpass.includes(context.PASSWORD)) {
-      adminpass.updateOne(
-        {
-          id: "admin",
-        },
-        {
-          $set: {
-            password: msg.newpass,
-          },
-        }
-      )
+      await pool.execute("UPDATE admin_settings SET password = ?", [
+        msg.newpass,
+      ])
 
       context.PASSWORD = msg.newpass
       socket.emit("event", {
@@ -249,8 +209,6 @@ io.on("connection", async (socket) => {
     } else console.log("❌ Invalid admin password attempt: " + msg.adminpass)
   })
 })
-
-await initializeDB()
 
 // Start the server
 server.listen(3000, () =>

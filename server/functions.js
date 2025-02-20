@@ -1,57 +1,72 @@
-import { adminpass, rooms, reports } from "./mongo.js"
 import { context } from "./context.js"
+import { pool } from "./db.js"
 
 export const password = async () => {
-  const result = await adminpass.findOne({ id: "admin" })
+  try {
+    // Check if admin password exists
+    const [rows] = await pool.execute(
+      "SELECT password FROM admin_settings WHERE id = 1"
+    )
 
-  if (result) return (context.PASSWORD = result.password)
+    if (rows.length > 0) {
+      context.PASSWORD = rows[0].password
+    }
 
-  adminpass.insertOne({
-    id: "admin",
-    password: context.PASSWORD,
-  })
+    // If no password exists, insert the default one from context
+    await pool.execute("INSERT INTO admin_settings (password) VALUES (?)", [
+      context.PASSWORD,
+    ])
+  } catch (error) {
+    console.warn("❌ Error managing admin password:", error)
+  }
 }
 
 export const getroom = async (socket) => {
-  const result = rooms.find({
-    private: false,
-  })
+  const [rooms] = await pool.execute(
+    "SELECT room_uuid as id, name as title FROM rooms WHERE is_private = 0"
+  )
 
-  for await (const room of result) {
-    if (room.data === "room") socket.emit("room", room)
-    else
-      socket.emit("room", {
-        highlight: room.highlight,
-        title: room.title,
-        id: room.roomid,
-      })
+  for (const room of rooms) {
+    socket.emit("room", {
+      title: room.title,
+      id: room.id,
+    })
   }
 }
 
 export const get = async (socket, id) => {
   try {
-    const room = await rooms.findOne({ roomid: id })
+    const [messages] = await pool.execute(
+      "SELECT message_uuid as id, content as message FROM messages WHERE room_id = ? ORDER BY created_at ASC",
+      [id]
+    )
 
-    if (!room || !room.messages) return
-
-    for (const message of room.messages) {
-      socket.emit("message", message)
+    for (const message of messages) {
+      socket.emit("message", {
+        id: message.id,
+        message: message.message,
+      })
     }
   } catch (error) {
-    console.warn("❌ Error! " + error)
+    console.warn("❌ Error fetching messages:", error)
   }
 }
 
-export const getReports = async (socket) => {
-  try {
-    const reportsCursor = reports.find({})
-    
-    // Send each report to the client
-    for await (const report of reportsCursor) {
-      const message ={msgid: report.msgid, roomid: report.roomid, message: report.message, time: report.timestamp}
-      socket.emit("report", message)
-    }
-  } catch (error) {
-    console.warn("❌ Error! " + error)
-  }
-}
+// export const getReports = async (socket) => {
+//   try {
+//     const reportsCursor = reports.find({})
+
+//     // Send each report to the client
+//     for await (const report of reportsCursor) {
+//       const message = {
+//         msgid: report.msgid,
+//         roomid: report.roomid,
+//         message: report.message,
+//         time: report.timestamp,
+//       }
+//       socket.emit("report", message)
+//     }
+//   } catch (error) {
+//     console.warn("❌ Error! " + error)
+//   }
+// }
