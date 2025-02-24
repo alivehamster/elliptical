@@ -32,6 +32,7 @@ export const context = reactive({
     text: "",
     id: "",
   },
+  flag: "",
 })
 
 export const showMain = ref(false);

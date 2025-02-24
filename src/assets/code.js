@@ -72,9 +72,7 @@ export const joinReports = () => {
 export const gotomsg = (roomid, msgid) => {
   joinRoom({ id: roomid })
 
-  setTimeout(() => {
-    document.getElementById(msgid)?.scrollIntoView({ behavior: "smooth" })
-  }, 800)
+  context.flag = msgid
 }
 
 export const reportmsg = (msg) => {

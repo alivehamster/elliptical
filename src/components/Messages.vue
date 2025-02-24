@@ -29,8 +29,10 @@ const currentRoomTitle = computed(() => {
     <h3 class="font-bold">Welcome to #{{ currentRoomTitle }}</h3>
 
     <ul>
-      <li v-for="(message, index) in context.messages" :key="index"
-        :class="message.highlight ? 'highlight' + ((context.messages[index + 1]?.highlight ? ' below' : '') + (context.messages[index - 1]?.highlight ? ' above' : '')) : ''">
+      <li v-for="(message, index) in context.messages" :key="index" :class="[
+        message.highlight ? 'highlight' + ((context.messages[index + 1]?.highlight ? ' below' : '') + (context.messages[index - 1]?.highlight ? ' above' : '')) : '',
+        context.flag === message.id ? '!bg-red-500 rounded-md' : ''
+      ]">
         <div class="flex items-center justify-between m-2">
           <div v-html="DOMPurify.sanitize(message.msg)" @click="deletemsg(message.id)" :id="message.id"></div>
           <button @click="reportmsg({ id: message.id, msg: message.originalmsg })"
