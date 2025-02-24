@@ -6,10 +6,20 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - mongodb
+      - mariadb
+    environment:
+      - DB_HOST=mariadb
+      - DB_USER=elliptical
+      - DB_PASS=yourpassword
+      - DB_NAME=elliptical
 
-  mongodb:
+  mariadb:
     restart: always
-    image: mongo
+    image: mariadb:latest
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=elliptical
+      - MYSQL_USER=elliptical
+      - MYSQL_PASSWORD=yourpassword
     volumes:
-      - ./mongo:/data/db
+      - ./mysql:/var/lib/mysql

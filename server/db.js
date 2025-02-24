@@ -47,6 +47,7 @@ export async function ensuredb() {
         room_uuid VARCHAR(36) NOT NULL UNIQUE,
         name VARCHAR(255) NOT NULL,
         is_private BOOLEAN DEFAULT FALSE,
+        is_highlighted BOOLEAN DEFAULT FALSE,
         access_code VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -61,6 +62,7 @@ export async function ensuredb() {
         room_id VARCHAR(36) NOT NULL,
         user_id VARCHAR(255) NOT NULL,
         content TEXT NOT NULL,
+        is_highlighted BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (room_id) REFERENCES rooms(room_uuid) ON DELETE CASCADE
       );

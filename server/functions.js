@@ -10,12 +10,12 @@ export const password = async () => {
 
     if (rows.length > 0) {
       context.PASSWORD = rows[0].password
+    } else {
+      // If no password exists, insert the default one from context
+      await pool.execute("INSERT INTO admin_settings (password) VALUES (?)", [
+        context.PASSWORD,
+      ])
     }
-
-    // If no password exists, insert the default one from context
-    await pool.execute("INSERT INTO admin_settings (password) VALUES (?)", [
-      context.PASSWORD,
-    ])
   } catch (error) {
     console.warn("❌ Error managing admin password:", error)
   }
@@ -37,14 +37,16 @@ export const getroom = async (socket) => {
 export const get = async (socket, id) => {
   try {
     const [messages] = await pool.execute(
-      "SELECT message_uuid as id, content as message FROM messages WHERE room_id = ? ORDER BY created_at ASC",
+      "SELECT message_uuid as id, content as message, is_highlighted FROM messages WHERE room_id = ? ORDER BY created_at ASC",
       [id]
     )
 
     for (const message of messages) {
+      console.log(message)
       socket.emit("message", {
-        id: message.id,
+        msgid: message.id,
         message: message.message,
+        highlight: message.is_highlighted,
       })
     }
   } catch (error) {
@@ -52,21 +54,27 @@ export const get = async (socket, id) => {
   }
 }
 
-// export const getReports = async (socket) => {
-//   try {
-//     const reportsCursor = reports.find({})
+export const getReports = async (socket) => {
+  try {
+    const [reports] = await pool.execute(
+      `SELECT 
+        message_uuid as msgid,
+        room_uuid as roomid,
+        message_content as message,
+        reported_at as time
+      FROM reports
+      ORDER BY reported_at DESC`
+    )
 
-//     // Send each report to the client
-//     for await (const report of reportsCursor) {
-//       const message = {
-//         msgid: report.msgid,
-//         roomid: report.roomid,
-//         message: report.message,
-//         time: report.timestamp,
-//       }
-//       socket.emit("report", message)
-//     }
-//   } catch (error) {
-//     console.warn("❌ Error! " + error)
-//   }
-// }
+    for (const report of reports) {
+      socket.emit("report", {
+        msgid: report.msgid,
+        roomid: report.roomid,
+        message: report.message,
+        time: report.time,
+      })
+    }
+  } catch (error) {
+    console.warn("❌ Error fetching reports:", error)
+  }
+}
